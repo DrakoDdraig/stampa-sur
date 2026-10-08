@@ -40,10 +40,10 @@ export function ShirtCustomizer() {
   const [limiteAlcanzado, setLimiteAlcanzado] = useState(false)
   const [mensajeLimite, setMensajeLimite] = useState('')
   const [exitoDiseno, setExitoDiseno] = useState(false)
-  const [primerGuardado, setPrimerGuardado] = useState(true)
-  
 
   const debounceRef = useRef<NodeJS.Timeout | null>(null)
+  // Guarda el borrador cargado inicialmente para no re-guardarlo
+  const borradorInicialRef = useRef<string | null>(null)
 
   useEffect(() => () => { if (design && design.startsWith('blob:')) URL.revokeObjectURL(design) }, [design])
 
@@ -78,6 +78,22 @@ export function ShirtCustomizer() {
           if (b.colorNombre && b.colorHex) setColor({ nombre: b.colorNombre, hex: b.colorHex })
           if (b.imagenUrl) { setDesignUrl(b.imagenUrl); setDesign(b.imagenUrl) }
           if (b.notas) setNotes(b.notas)
+          // Guardar el estado inicial para no volver a guardar lo mismo
+          borradorInicialRef.current = JSON.stringify({
+            talle: b.talle ?? '',
+            colorNombre: b.colorNombre ?? '',
+            colorHex: b.colorHex ?? '',
+            imagenUrl: b.imagenUrl ?? '',
+            notas: b.notas ?? '',
+          })
+        } else {
+          borradorInicialRef.current = JSON.stringify({
+            talle: config.tallesDisponibles[1],
+            colorNombre: config.coloresDisponibles[0].nombre,
+            colorHex: config.coloresDisponibles[0].hex,
+            imagenUrl: '',
+            notas: '',
+          })
         }
       } catch (error) {
         console.error('Error cargando datos del usuario:', error)
@@ -94,6 +110,17 @@ export function ShirtCustomizer() {
     if (debounceRef.current) clearTimeout(debounceRef.current)
     debounceRef.current = setTimeout(async () => {
       try {
+        const estadoActual = JSON.stringify({
+          talle: size,
+          colorNombre: color.nombre,
+          colorHex: color.hex,
+          imagenUrl: designUrl,
+          notas: notes,
+        })
+
+        // Si el estado no cambió respecto al inicial, no guardar ni mostrar toast
+        if (estadoActual === borradorInicialRef.current) return
+
         const ref = doc(db, 'usuarios', user.uid)
         await setDoc(ref, {
           autoBorrador: {
@@ -105,16 +132,16 @@ export function ShirtCustomizer() {
             fecha: new Date(),
           },
         }, { merge: true })
-                if (!primerGuardado) {
-          setGuardado(true)
-          setGuardadoVisible(true)
-          setTimeout(() => {
-            setGuardadoVisible(false)
-            setTimeout(() => setGuardado(false), 400)
-          }, 1500)
-        } else {
-          setPrimerGuardado(false)
-        }
+
+        // Actualizar la referencia para que no vuelva a guardar lo mismo
+        borradorInicialRef.current = estadoActual
+
+        setGuardado(true)
+        setGuardadoVisible(true)
+        setTimeout(() => {
+          setGuardadoVisible(false)
+          setTimeout(() => setGuardado(false), 400)
+        }, 1500)
       } catch (error) {
         console.error('Error guardando borrador:', error)
       }
@@ -123,7 +150,7 @@ export function ShirtCustomizer() {
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current)
     }
-    }, [size, color, designUrl, notes, user, cargandoBorrador, primerGuardado])
+  }, [size, color, designUrl, notes, user, cargandoBorrador])
 
   async function handleDesign(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0]
@@ -147,44 +174,44 @@ export function ShirtCustomizer() {
       event.target.value = ''
     }
   }
+
   async function handleGuardarDiseno() {
-  if (!user) return
-  if (!designUrl) {
-    setMensajeLimite('Subí un diseño antes de guardarlo.')
-    setLimiteAlcanzado(true)
-    return
-  }
-  setGuardandoDiseno(true)
-  setMensajeLimite('')
-  try {
-    // Contar cuántos diseños tiene
-    const ref = collection(db, 'usuarios', user.uid, 'disenos')
-    const snapshot = await getDocs(ref)
-    if (snapshot.size >= 5) {
-      setMensajeLimite('Alcanzaste el límite de 5 diseños. Para guardar este, eliminá uno desde "Mis diseños".')
+    if (!user) return
+    if (!designUrl) {
+      setMensajeLimite('Subí un diseño antes de guardarlo.')
       setLimiteAlcanzado(true)
-      setGuardandoDiseno(false)
       return
     }
-    // Guardar el diseño
-    await addDoc(ref, {
-      talle: size,
-      colorNombre: color.nombre,
-      colorHex: color.hex,
-      imagenUrl: designUrl,
-      notas: notes,
-      fecha: new Date(),
-    })
-    setExitoDiseno(true)
-    setTimeout(() => setExitoDiseno(false), 2500)
-  } catch (error) {
-    console.error('Error guardando diseño:', error)
-    setMensajeLimite('No pudimos guardar el diseño. Intentá de nuevo.')
-    setLimiteAlcanzado(true)
-  } finally {
-    setGuardandoDiseno(false)
+    setGuardandoDiseno(true)
+    setMensajeLimite('')
+    try {
+      const ref = collection(db, 'usuarios', user.uid, 'disenos')
+      const snapshot = await getDocs(ref)
+      if (snapshot.size >= 5) {
+        setMensajeLimite('Alcanzaste el límite de 5 diseños. Para guardar este, eliminá uno desde "Mis diseños".')
+        setLimiteAlcanzado(true)
+        setGuardandoDiseno(false)
+        return
+      }
+      await addDoc(ref, {
+        talle: size,
+        colorNombre: color.nombre,
+        colorHex: color.hex,
+        imagenUrl: designUrl,
+        notas: notes,
+        fecha: new Date(),
+      })
+      window.dispatchEvent(new Event('diseno-guardado'))
+      setExitoDiseno(true)
+      setTimeout(() => setExitoDiseno(false), 2500)
+    } catch (error) {
+      console.error('Error guardando diseño:', error)
+      setMensajeLimite('No pudimos guardar el diseño. Intentá de nuevo.')
+      setLimiteAlcanzado(true)
+    } finally {
+      setGuardandoDiseno(false)
+    }
   }
-}
 
   function openWhatsApp(message: string) {
     window.open(`https://wa.me/${config.whatsappNumber}?text=${encodeURIComponent(message)}`, '_blank', 'noopener,noreferrer')
@@ -195,7 +222,7 @@ export function ShirtCustomizer() {
   const message = `Hola Stampa Sur! Quiero personalizar una remera.\n\nCliente: ${nombreCliente || '[completar]'}\nProducto: Remera personalizada\nTalle: ${size}\nColor: ${color.nombre}\nDiseño: ${disenoTexto}${notasTexto}`
   const helpMessage = 'Hola Stampa Sur! Quiero una remera personalizada pero no tengo el diseño. ¿Me pueden ayudar a crearlo?'
 
-return (
+  return (
     <section id="personalizar" className="border-y border-white/10 bg-[#11100e] px-5 py-20 lg:px-10">
       <ScrollReveal className="mx-auto max-w-7xl">
         <div className="mb-12 max-w-3xl">
@@ -252,16 +279,18 @@ return (
                 Notas opcionales
                 <textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={3} placeholder="Contanos algún detalle" className="mt-3 w-full resize-none border border-white/15 bg-transparent px-4 py-3 text-sm normal-case tracking-normal text-white outline-none placeholder:text-white/30 focus:border-[#c9a961]" />
               </label>
-                  {user && designUrl && (
-  <button
-    type="button"
-    onClick={handleGuardarDiseno}
-    disabled={guardandoDiseno}
-    className="flex w-full items-center justify-center gap-3 border border-[#c9a961]/60 px-6 py-4 text-[10px] font-semibold uppercase tracking-[0.25em] text-[#c9a961] transition hover:bg-[#c9a961] hover:text-black disabled:cursor-not-allowed disabled:opacity-50"
-  >
-    {guardandoDiseno ? 'Guardando...' : 'Guardar diseño'}
-  </button>
-)}
+
+              {user && designUrl && (
+                <button
+                  type="button"
+                  onClick={handleGuardarDiseno}
+                  disabled={guardandoDiseno}
+                  className="flex w-full items-center justify-center gap-3 border border-[#c9a961]/60 px-6 py-4 text-[10px] font-semibold uppercase tracking-[0.25em] text-[#c9a961] transition hover:bg-[#c9a961] hover:text-black disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {guardandoDiseno ? 'Guardando...' : 'Guardar diseño'}
+                </button>
+              )}
+
               {!user ? (
                 <div className="flex flex-col gap-3 border border-[#c8b995]/30 bg-[#c8b995]/5 p-4">
                   <p className="text-xs leading-6 text-white/70">
@@ -293,7 +322,7 @@ return (
             </div>
           </div>
 
-                   <div className="border border-white/10 bg-[#0b0b0b] p-6 sm:p-8">
+          <div className="border border-white/10 bg-[#0b0b0b] p-6 sm:p-8">
             <p className="text-[10px] uppercase tracking-[0.3em] text-[#c9a961]">Camino B</p>
             <h3 className="mt-3 font-serif text-3xl">Quiero que me diseñen</h3>
             <p className="mt-5 text-sm leading-7 text-white/55">No tenés diseño todavía? Nuestro equipo puede ayudarte a crear una idea única.</p>
@@ -304,7 +333,7 @@ return (
         </div>
       </ScrollReveal>
 
-            {/* Toast flotante de guardado */}
+      {/* Toast flotante de guardado */}
       {guardado && user && (
         <div
           className="fixed left-1/2 top-6 z-50 flex items-center gap-3 rounded-full border border-emerald-400/60 px-6 py-3 shadow-[0_0_30px_rgba(16,185,129,0.5)] backdrop-blur-sm"
@@ -363,7 +392,7 @@ return (
             <p className="mt-5 text-sm leading-7 text-white/60">{mensajeLimite}</p>
             <div className="mt-7 flex flex-col gap-3 sm:flex-row">
               <Link
-                href="/mi-cuenta"
+                href="/mis-disenos"
                 className="flex-1 bg-[#c9a961] px-5 py-3 text-center text-[10px] font-semibold uppercase tracking-[0.2em] text-black transition hover:bg-[#eadcb8]"
               >
                 Ir a Mis Diseños
