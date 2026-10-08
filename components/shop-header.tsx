@@ -9,7 +9,7 @@ import { useCart } from '@/app/providers'
 import { AnimatedHeader, CartPop, CursorGlow } from '@/components/motion-effects'
 import { useAuth } from '@/components/auth-provider'
 
-const logoUrl = 'https://i.ibb.co/gbpFcrVS/222.png'
+const logoUrl = 'https://i.ibb.co/FtTQmgC/Chat-GPT-Image-6-oct-2026-04-55-52-a-m.png'
 
 export function ShopHeader() {
   const [open, setOpen] = useState(false)
@@ -53,6 +53,9 @@ export function ShopHeader() {
           <Link href="/">Inicio</Link>
           <Link className="text-[#c8b995]" href="/tienda">Tienda</Link>
           {accountLink}
+          <Link href="/mis-disenos" className="transition hover:text-[#c8b995]">
+            Mis Diseños
+          </Link>
           {role === 'admin' && (
             <Link href="/admin" className="text-[#c8b995] transition hover:text-[#eadcb8]">
               Administrar tienda
@@ -92,6 +95,13 @@ export function ShopHeader() {
                   >
                     Mi cuenta
                   </Link>
+                  <Link
+                    href="/mis-disenos"
+                    onClick={() => setMenuOpen(false)}
+                    className="block border-t border-white/5 px-5 py-3 text-[10px] uppercase tracking-[0.2em] text-white/70 transition hover:bg-[#c8b995]/10 hover:text-[#c8b995]"
+                  >
+                    Mis diseños
+                  </Link>
                   {role === 'admin' && (
                     <Link
                       href="/admin"
@@ -127,6 +137,7 @@ export function ShopHeader() {
           <Link href="/">Inicio</Link>
           <Link href="/tienda">Tienda</Link>
           {accountLink}
+          <Link href="/mis-disenos">Mis Diseños</Link>
           {role === 'admin' && <Link href="/admin" className="text-[#c8b995]">Administrar tienda</Link>}
         </nav>
       )}

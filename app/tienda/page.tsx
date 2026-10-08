@@ -9,6 +9,7 @@ import { db } from '@/lib/firebase'
 import { ShopHeader } from '@/components/shop-header'
 import { ScrollReveal } from '@/components/motion-effects'
 import { formatPrice } from '@/lib/store'
+import { ShirtCustomizer as Configurator } from '@/components/shirt-customizer'
 
 type Producto = {
   id: string
@@ -166,7 +167,7 @@ export default function TiendaPage() {
           </div>
         )}
       </section>
-
+         <Configurator />
       <footer className="border-t border-white/10 px-5 py-10 text-center text-xs text-white/30 lg:px-10">
         <p>Stampa Sur · Buenos Aires, Argentina</p>
       </footer>

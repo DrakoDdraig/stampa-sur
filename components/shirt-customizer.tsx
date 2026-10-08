@@ -1,15 +1,24 @@
 'use client'
 
-import { ChangeEvent, useEffect, useState } from 'react'
+import { ChangeEvent, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
-import { doc, getDoc } from 'firebase/firestore'
 import { CONFIG_PERSONALIZACION as config } from '@/config/personalizacion'
 import { ScrollReveal } from '@/components/motion-effects'
 import { useAuth } from '@/components/auth-provider'
 import { db } from '@/lib/firebase'
+import { addDoc, collection, doc, getDoc, getDocs, setDoc } from 'firebase/firestore'
+import { AlertCircle, X } from 'lucide-react'
 
 function ShirtPreview({ color, design }: { color: string; design: string }) {
-  return <div className="relative mx-auto aspect-[0.85] w-full max-w-90 overflow-hidden rounded-sm bg-[#0d0d0d] p-5 shadow-[0_20px_70px_rgba(0,0,0,0.45)]"><svg viewBox="0 0 360 430" className="h-full w-full" role="img" aria-label="Vista previa de la remera"><path fill={color} d="M92 54 142 25h76l50 29 78 73-45 58-43-37v244H102V148l-43 37-45-58 78-73Z" /><path fill="none" stroke="rgba(255,255,255,.16)" strokeWidth="3" d="M142 25c8 31 20 45 38 45s30-14 38-45M102 148l22 18m134-18-22 18" /></svg>{design && <img src={design} alt="Tu diseño sobre la remera" className="absolute left-1/2 top-[45%] max-h-28 w-28 -translate-x-1/2 -translate-y-1/2 object-contain" />}</div>
+  return (
+    <div className="relative mx-auto aspect-[0.85] w-full max-w-90 overflow-hidden rounded-sm bg-[#0d0d0d] p-5 shadow-[0_20px_70px_rgba(0,0,0,0.45)]">
+      <svg viewBox="0 0 360 430" className="h-full w-full" role="img" aria-label="Vista previa de la remera">
+        <path fill={color} d="M92 54 142 25h76l50 29 78 73-45 58-43-37v244H102V148l-43 37-45-58 78-73Z" />
+        <path fill="none" stroke="rgba(255,255,255,.16)" strokeWidth="3" d="M142 25c8 31 20 45 38 45s30-14 38-45M102 148l22 18m134-18-22 18" />
+      </svg>
+      {design && <img src={design} alt="Tu diseño sobre la remera" className="absolute left-1/2 top-[45%] max-h-28 w-28 -translate-x-1/2 -translate-y-1/2 object-contain" />}
+    </div>
+  )
 }
 
 export function ShirtCustomizer() {
@@ -21,20 +30,30 @@ export function ShirtCustomizer() {
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState('')
   const [notes, setNotes] = useState('')
-
-  // Datos del usuario desde Firestore
   const [nombreCliente, setNombreCliente] = useState('')
   const [datosCompletos, setDatosCompletos] = useState(false)
   const [faltantes, setFaltantes] = useState<string[]>([])
+  const [cargandoBorrador, setCargandoBorrador] = useState(true)
+  const [guardado, setGuardado] = useState(false)
+  const [guardadoVisible, setGuardadoVisible] = useState(false)
+  const [guardandoDiseno, setGuardandoDiseno] = useState(false)
+  const [limiteAlcanzado, setLimiteAlcanzado] = useState(false)
+  const [mensajeLimite, setMensajeLimite] = useState('')
+  const [exitoDiseno, setExitoDiseno] = useState(false)
+  const [primerGuardado, setPrimerGuardado] = useState(true)
+  
+
+  const debounceRef = useRef<NodeJS.Timeout | null>(null)
 
   useEffect(() => () => { if (design && design.startsWith('blob:')) URL.revokeObjectURL(design) }, [design])
 
-  // Cargar datos del usuario (nombre real + verificar datos de envío)
+  // Cargar datos del usuario
   useEffect(() => {
     if (!user) {
       setNombreCliente('')
       setDatosCompletos(false)
       setFaltantes([])
+      setCargandoBorrador(false)
       return
     }
     const cargar = async () => {
@@ -42,12 +61,8 @@ export function ShirtCustomizer() {
         const ref = doc(db, 'usuarios', user.uid)
         const snap = await getDoc(ref)
         const d = snap.data() ?? {}
-
-        // Nombre real: primero el de Firestore, sino el displayName, sino el email
         const nombreReal = d.nombre || user.displayName || user.email?.split('@')[0] || 'Cliente'
         setNombreCliente(nombreReal)
-
-        // Verificar datos de envío
         const faltan: string[] = []
         if (!d.telefono) faltan.push('teléfono')
         if (!d.direccion) faltan.push('dirección')
@@ -55,22 +70,68 @@ export function ShirtCustomizer() {
         if (!d.codigoPostal) faltan.push('código postal')
         setFaltantes(faltan)
         setDatosCompletos(faltan.length === 0)
+
+        // Cargar autoBorrador
+        if (d.autoBorrador) {
+          const b = d.autoBorrador
+          if (b.talle) setSize(b.talle)
+          if (b.colorNombre && b.colorHex) setColor({ nombre: b.colorNombre, hex: b.colorHex })
+          if (b.imagenUrl) { setDesignUrl(b.imagenUrl); setDesign(b.imagenUrl) }
+          if (b.notas) setNotes(b.notas)
+        }
       } catch (error) {
         console.error('Error cargando datos del usuario:', error)
+      } finally {
+        setCargandoBorrador(false)
       }
     }
     cargar()
   }, [user])
 
+  // Auto-guardado con debounce
+  useEffect(() => {
+    if (!user || cargandoBorrador) return
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(async () => {
+      try {
+        const ref = doc(db, 'usuarios', user.uid)
+        await setDoc(ref, {
+          autoBorrador: {
+            talle: size,
+            colorNombre: color.nombre,
+            colorHex: color.hex,
+            imagenUrl: designUrl,
+            notas: notes,
+            fecha: new Date(),
+          },
+        }, { merge: true })
+                if (!primerGuardado) {
+          setGuardado(true)
+          setGuardadoVisible(true)
+          setTimeout(() => {
+            setGuardadoVisible(false)
+            setTimeout(() => setGuardado(false), 400)
+          }, 1500)
+        } else {
+          setPrimerGuardado(false)
+        }
+      } catch (error) {
+        console.error('Error guardando borrador:', error)
+      }
+    }, 1500)
+
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current)
+    }
+    }, [size, color, designUrl, notes, user, cargandoBorrador, primerGuardado])
+
   async function handleDesign(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0]
     if (!file) return
-
     setUploadError('')
     if (design && design.startsWith('blob:')) URL.revokeObjectURL(design)
     setDesign(URL.createObjectURL(file))
     setUploading(true)
-
     try {
       const body = new FormData()
       body.append('image', file)
@@ -86,21 +147,55 @@ export function ShirtCustomizer() {
       event.target.value = ''
     }
   }
+  async function handleGuardarDiseno() {
+  if (!user) return
+  if (!designUrl) {
+    setMensajeLimite('Subí un diseño antes de guardarlo.')
+    setLimiteAlcanzado(true)
+    return
+  }
+  setGuardandoDiseno(true)
+  setMensajeLimite('')
+  try {
+    // Contar cuántos diseños tiene
+    const ref = collection(db, 'usuarios', user.uid, 'disenos')
+    const snapshot = await getDocs(ref)
+    if (snapshot.size >= 5) {
+      setMensajeLimite('Alcanzaste el límite de 5 diseños. Para guardar este, eliminá uno desde "Mis diseños".')
+      setLimiteAlcanzado(true)
+      setGuardandoDiseno(false)
+      return
+    }
+    // Guardar el diseño
+    await addDoc(ref, {
+      talle: size,
+      colorNombre: color.nombre,
+      colorHex: color.hex,
+      imagenUrl: designUrl,
+      notas: notes,
+      fecha: new Date(),
+    })
+    setExitoDiseno(true)
+    setTimeout(() => setExitoDiseno(false), 2500)
+  } catch (error) {
+    console.error('Error guardando diseño:', error)
+    setMensajeLimite('No pudimos guardar el diseño. Intentá de nuevo.')
+    setLimiteAlcanzado(true)
+  } finally {
+    setGuardandoDiseno(false)
+  }
+}
 
   function openWhatsApp(message: string) {
     window.open(`https://wa.me/${config.whatsappNumber}?text=${encodeURIComponent(message)}`, '_blank', 'noopener,noreferrer')
   }
 
-  // Armar mensaje de WhatsApp
   const disenoTexto = designUrl || '[el cliente adjunta la imagen por WhatsApp]'
   const notasTexto = notes.trim() ? `\nNotas: ${notes.trim()}` : ''
-
-const message = `Hola Stampa Sur! Quiero personalizar una remera.\n\nCliente: ${nombreCliente || '[completar]'}\nProducto: Remera personalizada\nTalle: ${size}\nColor: ${color.nombre}\nDiseño: ${disenoTexto}${notasTexto}`
+  const message = `Hola Stampa Sur! Quiero personalizar una remera.\n\nCliente: ${nombreCliente || '[completar]'}\nProducto: Remera personalizada\nTalle: ${size}\nColor: ${color.nombre}\nDiseño: ${disenoTexto}${notasTexto}`
   const helpMessage = 'Hola Stampa Sur! Quiero una remera personalizada pero no tengo el diseño. ¿Me pueden ayudar a crearlo?'
 
-  const puedeFinalizar = !!user && datosCompletos && !!designUrl && !uploading
-
-  return (
+return (
     <section id="personalizar" className="border-y border-white/10 bg-[#11100e] px-5 py-20 lg:px-10">
       <ScrollReveal className="mx-auto max-w-7xl">
         <div className="mb-12 max-w-3xl">
@@ -110,9 +205,10 @@ const message = `Hola Stampa Sur! Quiero personalizar una remera.\n\nCliente: ${
         </div>
 
         <div className="grid gap-5 lg:grid-cols-2">
-          {/* CAMINO A */}
           <div className="border border-white/10 bg-[#0b0b0b] p-6 sm:p-8">
-            <p className="text-[10px] uppercase tracking-[0.3em] text-[#c9a961]">Camino A</p>
+            <div className="flex items-center justify-between">
+              <p className="text-[10px] uppercase tracking-[0.3em] text-[#c9a961]">Camino A</p>
+            </div>
             <h3 className="mt-3 font-serif text-3xl">Ya tengo mi diseño</h3>
 
             <div className="mt-8 flex flex-col gap-6">
@@ -137,12 +233,6 @@ const message = `Hola Stampa Sur! Quiero personalizar una remera.\n\nCliente: ${
               </fieldset>
 
               <div>
-                <p className="mb-3 text-[10px] uppercase tracking-[0.25em] text-white/55">Preview en vivo</p>
-                <ShirtPreview color={color.hex} design={design} />
-                <p className="mt-3 text-center text-[10px] uppercase tracking-[0.2em] text-white/35">{size} · {color.nombre}</p>
-              </div>
-
-              <div>
                 <label htmlFor="design-upload" className="block cursor-pointer border border-dashed border-white/20 px-4 py-4 text-xs uppercase tracking-[0.15em] text-[#c9a961] transition hover:border-[#c9a961]">
                   {uploading ? 'Subiendo...' : design ? 'Cambiar diseño PNG' : 'Subir diseño PNG'}
                 </label>
@@ -152,12 +242,26 @@ const message = `Hola Stampa Sur! Quiero personalizar una remera.\n\nCliente: ${
                 <p className="mt-3 text-xs leading-6 text-white/55">Subí tu diseño en PNG con fondo transparente. Si la imagen tiene fondo, se va a estampar tal cual.</p>
               </div>
 
+              <div>
+                <p className="mb-3 text-[10px] uppercase tracking-[0.25em] text-white/55">Preview en vivo</p>
+                <ShirtPreview color={color.hex} design={design} />
+                <p className="mt-3 text-center text-[10px] uppercase tracking-[0.2em] text-white/35">{size} · {color.nombre}</p>
+              </div>
+
               <label className="text-[10px] uppercase tracking-[0.25em] text-white/55">
                 Notas opcionales
                 <textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={3} placeholder="Contanos algún detalle" className="mt-3 w-full resize-none border border-white/15 bg-transparent px-4 py-3 text-sm normal-case tracking-normal text-white outline-none placeholder:text-white/30 focus:border-[#c9a961]" />
               </label>
-
-              {/* BOTÓN FINALIZAR */}
+                  {user && designUrl && (
+  <button
+    type="button"
+    onClick={handleGuardarDiseno}
+    disabled={guardandoDiseno}
+    className="flex w-full items-center justify-center gap-3 border border-[#c9a961]/60 px-6 py-4 text-[10px] font-semibold uppercase tracking-[0.25em] text-[#c9a961] transition hover:bg-[#c9a961] hover:text-black disabled:cursor-not-allowed disabled:opacity-50"
+  >
+    {guardandoDiseno ? 'Guardando...' : 'Guardar diseño'}
+  </button>
+)}
               {!user ? (
                 <div className="flex flex-col gap-3 border border-[#c8b995]/30 bg-[#c8b995]/5 p-4">
                   <p className="text-xs leading-6 text-white/70">
@@ -189,8 +293,7 @@ const message = `Hola Stampa Sur! Quiero personalizar una remera.\n\nCliente: ${
             </div>
           </div>
 
-          {/* CAMINO B */}
-          <div className="border border-white/10 bg-[#0b0b0b] p-6 sm:p-8">
+                   <div className="border border-white/10 bg-[#0b0b0b] p-6 sm:p-8">
             <p className="text-[10px] uppercase tracking-[0.3em] text-[#c9a961]">Camino B</p>
             <h3 className="mt-3 font-serif text-3xl">Quiero que me diseñen</h3>
             <p className="mt-5 text-sm leading-7 text-white/55">No tenés diseño todavía? Nuestro equipo puede ayudarte a crear una idea única.</p>
@@ -200,6 +303,95 @@ const message = `Hola Stampa Sur! Quiero personalizar una remera.\n\nCliente: ${
           </div>
         </div>
       </ScrollReveal>
+
+            {/* Toast flotante de guardado */}
+      {guardado && user && (
+        <div
+          className="fixed left-1/2 top-6 z-50 flex items-center gap-3 rounded-full border border-emerald-400/60 px-6 py-3 shadow-[0_0_30px_rgba(16,185,129,0.5)] backdrop-blur-sm"
+          style={{
+            backgroundColor: 'rgba(16, 185, 129, 0.85)',
+            animation: guardadoVisible
+              ? 'bounceDown 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards'
+              : 'slideUpOut 0.4s ease-in forwards',
+            transform: 'translateX(-50%)',
+          }}
+        >
+          <span className="flex size-5 items-center justify-center rounded-full bg-white/20">
+            <svg className="size-3 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+          </span>
+          <span className="text-[10px] uppercase tracking-[0.2em] text-white">Diseño guardado</span>
+        </div>
+      )}
+
+      {/* Toast de éxito al guardar diseño */}
+      {exitoDiseno && (
+        <div
+          className="fixed left-1/2 top-6 z-50 flex items-center gap-3 rounded-full border border-emerald-400/60 px-6 py-3 shadow-[0_0_30px_rgba(16,185,129,0.5)] backdrop-blur-sm"
+          style={{
+            backgroundColor: 'rgba(16, 185, 129, 0.85)',
+            animation: 'bounceDown 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards',
+            transform: 'translateX(-50%)',
+          }}
+        >
+          <span className="flex size-5 items-center justify-center rounded-full bg-white/20">
+            <svg className="size-3 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+          </span>
+          <span className="text-[10px] uppercase tracking-[0.2em] text-white">Diseño guardado en Mis Diseños</span>
+        </div>
+      )}
+
+      {/* Modal de límite alcanzado */}
+      {limiteAlcanzado && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-5">
+          <div className="w-full max-w-md border border-white/10 bg-[#151515] p-6 shadow-2xl">
+            <div className="flex items-start gap-3">
+              <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-yellow-500/10">
+                <AlertCircle className="size-5 text-yellow-400" />
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-[0.25em] text-yellow-400">Atención</p>
+                <h2 className="mt-2 font-serif text-2xl">Límite alcanzado</h2>
+              </div>
+              <button onClick={() => setLimiteAlcanzado(false)} className="ml-auto" aria-label="Cerrar">
+                <X className="size-5 text-white/50" />
+              </button>
+            </div>
+            <p className="mt-5 text-sm leading-7 text-white/60">{mensajeLimite}</p>
+            <div className="mt-7 flex flex-col gap-3 sm:flex-row">
+              <Link
+                href="/mi-cuenta"
+                className="flex-1 bg-[#c9a961] px-5 py-3 text-center text-[10px] font-semibold uppercase tracking-[0.2em] text-black transition hover:bg-[#eadcb8]"
+              >
+                Ir a Mis Diseños
+              </Link>
+              <button
+                type="button"
+                onClick={() => setLimiteAlcanzado(false)}
+                className="flex-1 border border-white/20 px-5 py-3 text-[10px] font-semibold uppercase tracking-[0.2em] text-white/70 transition hover:border-white/40 hover:text-white"
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <style jsx global>{`
+        @keyframes bounceDown {
+          0% { opacity: 0; transform: translate(-50%, -120%); }
+          50% { opacity: 1; transform: translate(-50%, 10%); }
+          70% { transform: translate(-50%, -5%); }
+          100% { opacity: 1; transform: translate(-50%, 0); }
+        }
+        @keyframes slideUpOut {
+          0% { opacity: 1; transform: translate(-50%, 0); }
+          100% { opacity: 0; transform: translate(-50%, -120%); }
+        }
+      `}</style>
     </section>
   )
 }

@@ -63,9 +63,9 @@ export default function Page() {
         <Image src={logoUrl} alt="" aria-hidden width={900} height={900} className="dragon-breathe pointer-events-none absolute left-1/2 top-1/2 -z-10 w-[min(92vw,900px)] -translate-x-1/2 -translate-y-1/2 object-contain opacity-25" unoptimized />
         <div className="mx-auto grid w-full max-w-7xl items-center gap-12 lg:grid-cols-[1fr_0.8fr]">
           <ScrollReveal className="max-w-2xl">
-            <p className="mb-8 text-[10px] uppercase tracking-[0.45em] text-[#c8b995]">Hecho en el sur · Desde 2024</p>
+            <p className="mb-8 text-[10px] uppercase tracking-[0.45em] text-[#c8b995]">Hecho en el sur · Desde 2026</p>
             <h1 className="font-serif text-6xl leading-[0.9] tracking-[-0.04em] sm:text-8xl lg:text-[9.5rem]">Vestí tu<br /><span className="text-[#c8b995]">identidad.</span></h1>
-            <p className="mt-9 max-w-md text-sm leading-7 text-white/55">Remeras estampadas con identidad propia. Diseños que nacen de la calle, la música y el pulso de nuestra tierra.</p>
+            <p className="mt-9 max-w-md text-sm leading-7 text-white/55">Remeras estampadas con identidad propia. Diseños fuera de lo común.</p>
             <motion.div whileHover={{ y: -2, boxShadow: '0 0 24px rgba(201,169,97,0.2)' }} whileTap={{ scale: 0.97 }} className="mt-10 inline-flex">
               <Link href="/tienda" className="inline-flex items-center gap-4 border border-[#c8b995] px-6 py-4 text-[10px] uppercase tracking-[0.3em] text-[#c8b995] transition hover:bg-[#c8b995] hover:text-black">
                 Explorar colección <ArrowRight className="size-4" />
