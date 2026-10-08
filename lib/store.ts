@@ -20,7 +20,7 @@ export const products: Product[] = [
 ]
 
 export const formatPrice = (value: number) => `$${value.toLocaleString('es-AR')}`
-export const whatsappNumber = '541133151857'
+export const whatsappNumber = '541121834758'
 
 export function productArtwork(product: Product) {
   return product.tone === 'white' ? 'bg-[#e7e4dc] text-[#0a0a0a]' : product.tone === 'sand' ? 'bg-[#c9bca4] text-[#0a0a0a]' : 'bg-[#151515] text-[#e7e2d8]'

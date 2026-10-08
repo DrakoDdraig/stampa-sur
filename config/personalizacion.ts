@@ -1,5 +1,5 @@
 export const CONFIG_PERSONALIZACION = {
-  whatsappNumber: '541133151857',
+  whatsappNumber: '541121834758',
   tallesDisponibles: ['S', 'M', 'L', 'XL', 'XXL'],
   coloresDisponibles: [
     { nombre: 'Negro', hex: '#000000' },

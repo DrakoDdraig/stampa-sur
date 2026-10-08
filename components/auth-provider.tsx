@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { onAuthStateChanged, signOut, type User } from 'firebase/auth'
-import { doc, getDoc } from 'firebase/firestore'
+import { doc, getDoc, onSnapshot } from 'firebase/firestore'
 import { usePathname, useRouter } from 'next/navigation'
 import { auth, db } from '@/lib/firebase'
 
@@ -16,6 +16,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname()
   const router = useRouter()
 
+  // 1. Detectar login/logout
   useEffect(() => onAuthStateChanged(auth, async (nextUser) => {
     setUser(nextUser)
     try {
@@ -28,27 +29,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }), [])
 
+  // 2. Escuchar el documento del usuario en tiempo real (para que el rol se actualice sin cerrar sesión)
+  useEffect(() => {
+    if (!user) return
+    const ref = doc(db, 'usuarios', user.uid)
+    const unsubscribeDoc = onSnapshot(ref, (snapshot) => {
+      if (snapshot.exists()) {
+        setRole(String(snapshot.data().rol ?? 'cliente'))
+      } else {
+        setRole('cliente')
+      }
+    }, (error) => {
+      console.error('Error escuchando el documento del usuario:', error)
+    })
+    return () => unsubscribeDoc()
+  }, [user])
+
+  // 3. Redirecciones según el rol y la ruta
   useEffect(() => {
     if (loading) return
 
-    // Rutas que requieren estar logueado
     const requiresAuth = pathname.startsWith('/admin') || pathname.startsWith('/mi-cuenta')
 
-    // Si requiere auth y no está logueado → al login
     if (requiresAuth && !user) {
       router.replace('/login')
       return
     }
 
-    // Si está logueado y va a /login → al home
     if (user && pathname === '/login') {
-  const params = new URLSearchParams(window.location.search)
-  const redirect = params.get('redirect')
-  router.replace(redirect || '/')
-  return
-}
+      const params = new URLSearchParams(window.location.search)
+      const redirect = params.get('redirect')
+      router.replace(redirect || '/')
+      return
+    }
 
-    // Si está logueado, va a /admin y NO es admin → al home
     if (user && pathname.startsWith('/admin') && role !== 'admin') {
       router.replace('/')
       return
