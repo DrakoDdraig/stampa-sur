@@ -75,7 +75,7 @@ export default function CartPage() {
         .map((item) => `- ${item.quantity}x ${item.name} Talle ${item.size} (${item.color}) - ${formatPrice(item.price)} c/u`)
         .join('\n')
 
-const mensaje = `NUEVO PEDIDO - Stampa Sur\n\nCliente: ${userData.nombre ?? user.email}\nEmail: ${user.email}\nTeléfono: ${userData.telefono}\nDirección: ${userData.direccion}, ${userData.ciudad}, CP ${userData.codigoPostal}\n\nProductos:\n${productosTexto}\n\nTotal: ${formatPrice(total)}\n\nPedido #${orderRef.id.slice(0, 8).toUpperCase()}`
+const mensaje = `NUEVO PEDIDO - Stampa Sur\n\nCliente: ${userData.nombre ?? user.email}\nEmail: ${user.email}\nTeléfono: ${userData.telefono}\nDirección: ${userData.direccion}, ${userData.ciudad}, CP ${userData.codigoPostal}\n\n Productos:\n${productosTexto}\n\nTotal: ${formatPrice(total)}\n\nPedido #${orderRef.id.slice(0, 8).toUpperCase()}`
       const whatsappUrl = `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(mensaje)}`
 
       // 6. Vaciar carrito y abrir WhatsApp

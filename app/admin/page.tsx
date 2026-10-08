@@ -2,7 +2,7 @@
 
 import Image from 'next/image'
 import Link from 'next/link'
-import { useEffect, useRef, useState, type ChangeEvent, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react'
 import { useRouter } from 'next/navigation'
 import { Box, ChevronDown, CircleAlert, LayoutDashboard, LogOut, Mail, MapPin, Menu, PackagePlus, Pencil, Phone, ShoppingCart, Trash2, Users, X } from 'lucide-react'
 import { addDoc, collection, deleteDoc, doc, getDocs, serverTimestamp, updateDoc } from 'firebase/firestore'
@@ -27,6 +27,8 @@ const statusClasses: Record<string, string> = {
   Agotado: 'bg-red-400/10 text-red-300',
 }
 
+const ESTADOS_PEDIDO = ['Pendiente', 'En preparación', 'Enviado', 'Entregado']
+
 type ProductoAdmin = {
   id: string
   name: string
@@ -50,11 +52,26 @@ type ClienteAdmin = {
   fechaRegistro?: { toMillis?: () => number }
 }
 
+type PedidoAdmin = {
+  id: string
+  cliente: string
+  email: string
+  telefono: string
+  direccion: string
+  ciudad: string
+  codigoPostal: string
+  productos: Array<{ nombre: string; cantidad: number; talle: string; color: string; precio: number }>
+  total: number
+  estado: string
+  fecha?: { toMillis?: () => number }
+}
+
 export default function AdminPage() {
   const { user } = useAuth()
   const [active, setActive] = useState('Resumen')
   const [productos, setProductos] = useState<ProductoAdmin[]>([])
   const [clientes, setClientes] = useState<ClienteAdmin[]>([])
+  const [pedidos, setPedidos] = useState<PedidoAdmin[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [mobileNav, setMobileNav] = useState(false)
@@ -75,18 +92,18 @@ export default function AdminPage() {
       try {
         const productosSnapshot = await getDocs(collection(db, 'productos'))
         const listaProductos: ProductoAdmin[] = productosSnapshot.docs.map((doc) => {
-  const d = doc.data()
-  return {
-    id: doc.id,
-    name: d.nombre ?? 'Sin nombre',
-    category: d.categoria ?? 'Sin categoría',
-    price: d.precio ?? 0,
-    descuento: d.descuento ?? 0,
-    stock: d.stock ?? 0,
-    status: (d.stock ?? 0) > 0 ? 'Activo' : 'Agotado',
-    imageUrl: d.imagenUrl ?? '',
-  }
-})
+          const d = doc.data()
+          return {
+            id: doc.id,
+            name: d.nombre ?? 'Sin nombre',
+            category: d.categoria ?? 'Sin categoría',
+            price: Number(d.precio) || 0,
+            descuento: Number(d.descuento) || 0,
+            stock: Number(d.stock) || 0,
+            status: (Number(d.stock) || 0) > 0 ? 'Activo' : 'Agotado',
+            imageUrl: d.imagenUrl ?? '',
+          }
+        })
         setProductos(listaProductos)
 
         const clientesSnapshot = await getDocs(collection(db, 'usuarios'))
@@ -106,6 +123,26 @@ export default function AdminPage() {
         })
         listaClientes.sort((a, b) => (b.fechaRegistro?.toMillis?.() ?? 0) - (a.fechaRegistro?.toMillis?.() ?? 0))
         setClientes(listaClientes)
+
+        const pedidosSnapshot = await getDocs(collection(db, 'pedidos'))
+        const listaPedidos: PedidoAdmin[] = pedidosSnapshot.docs.map((doc) => {
+          const d = doc.data()
+          return {
+            id: doc.id,
+            cliente: d.cliente ?? 'Sin nombre',
+            email: d.email ?? '',
+            telefono: d.telefono ?? '',
+            direccion: d.direccion ?? '',
+            ciudad: d.ciudad ?? '',
+            codigoPostal: d.codigoPostal ?? '',
+            productos: d.productos ?? [],
+            total: Number(d.total) || 0,
+            estado: d.estado ?? 'Pendiente',
+            fecha: d.fecha,
+          }
+        })
+        listaPedidos.sort((a, b) => (b.fecha?.toMillis?.() ?? 0) - (a.fecha?.toMillis?.() ?? 0))
+        setPedidos(listaPedidos)
 
         if (user) {
           const userDoc = clientesSnapshot.docs.find((d) => d.id === user.uid)
@@ -162,12 +199,24 @@ export default function AdminPage() {
     }
   }
 
+  const handleCambiarEstado = async (pedidoId: string, nuevoEstado: string) => {
+    try {
+      await updateDoc(doc(db, 'pedidos', pedidoId), { estado: nuevoEstado })
+      setPedidos(pedidos.map((p) => (p.id === pedidoId ? { ...p, estado: nuevoEstado } : p)))
+    } catch (error) {
+      console.error('Error actualizando estado:', error)
+      alert('No pudimos actualizar el estado. Intentá de nuevo.')
+    }
+  }
+
   const currentDescription =
     active === 'Resumen'
       ? 'Una mirada general de tu tienda.'
       : active === 'Clientes'
         ? 'Todas las cuentas registradas en la tienda.'
-        : `Gestioná ${active.toLowerCase()} desde un solo lugar.`
+        : active === 'Pedidos'
+          ? 'Todos los pedidos y sus estados.'
+          : `Gestioná ${active.toLowerCase()} desde un solo lugar.`
 
   const iniciales = nombreAdmin
     .split(' ')
@@ -250,7 +299,7 @@ export default function AdminPage() {
             </div>
           ) : loading ? <LoadingState /> : (
             <>
-              {active === 'Resumen' && <Overview productos={productos} clientes={clientes} setActive={setActive} />}
+              {active === 'Resumen' && <Overview productos={productos} clientes={clientes} pedidos={pedidos} setActive={setActive} />}
               {active === 'Productos' && (
                 <Products
                   products={productos}
@@ -259,7 +308,7 @@ export default function AdminPage() {
                   onDelete={(product) => setDeletingProduct(product)}
                 />
               )}
-              {active === 'Pedidos' && <EmptyState message="Todavía no hay pedidos registrados." />}
+              {active === 'Pedidos' && <Pedidos pedidos={pedidos} onCambiarEstado={handleCambiarEstado} />}
               {active === 'Clientes' && <Clientes clientes={clientes} />}
             </>
           )}
@@ -288,12 +337,13 @@ function LoadingState() { return <div className="flex min-h-105 items-center jus
 
 function EmptyState({ message }: { message: string }) { return <div className="border border-white/10 bg-[#111] p-10 text-center text-sm text-white/40">{message}</div> }
 
-function Overview({ productos, clientes, setActive }: { productos: ProductoAdmin[]; clientes: ClienteAdmin[]; setActive: (value: string) => void }) {
+function Overview({ productos, clientes, pedidos, setActive }: { productos: ProductoAdmin[]; clientes: ClienteAdmin[]; pedidos: PedidoAdmin[]; setActive: (value: string) => void }) {
   const activos = productos.filter((p) => p.status === 'Activo').length
+  const pendientes = pedidos.filter((p) => p.estado === 'Pendiente').length
   const metrics = [
     { label: 'Productos totales', value: String(productos.length), icon: Box },
     { label: 'Productos activos', value: String(activos), icon: PackagePlus },
-    { label: 'Pedidos', value: '0', icon: ShoppingCart },
+    { label: 'Pedidos', value: String(pedidos.length), icon: ShoppingCart },
     { label: 'Cuentas creadas', value: String(clientes.length), icon: Users },
   ]
   return (
@@ -313,34 +363,25 @@ function Overview({ productos, clientes, setActive }: { productos: ProductoAdmin
         <section className="border border-white/10 bg-[#111] p-6">
           <div className="mb-7 flex items-center justify-between">
             <div>
-              <p className="text-[10px] uppercase tracking-[0.3em] text-[#c8b995]">Catálogo</p>
-              <h2 className="mt-2 font-serif text-2xl">Últimos productos</h2>
+              <p className="text-[10px] uppercase tracking-[0.3em] text-[#c8b995]">Actividad reciente</p>
+              <h2 className="mt-2 font-serif text-2xl">Últimos pedidos</h2>
             </div>
-            <button onClick={() => setActive('Productos')} className="text-[10px] uppercase tracking-[0.2em] text-white/45 hover:text-[#c8b995]">Ver todos</button>
+            <button onClick={() => setActive('Pedidos')} className="text-[10px] uppercase tracking-[0.2em] text-white/45 hover:text-[#c8b995]">Ver todos</button>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full min-w-150 text-left text-sm">
               <thead className="border-b border-white/10 text-[10px] uppercase tracking-[0.15em] text-white/35">
-                <tr><th className="pb-3 font-normal">Producto</th><th className="pb-3 font-normal">Categoría</th><th className="pb-3 text-right font-normal">Precio</th></tr>
+                <tr><th className="pb-3 font-normal">Cliente</th><th className="pb-3 font-normal">Estado</th><th className="pb-3 text-right font-normal">Total</th></tr>
               </thead>
               <tbody>
-                {productos.slice(0, 5).map((p) => (
+                {pedidos.slice(0, 5).map((p) => (
                   <tr key={p.id} className="border-b border-white/5 last:border-0">
-                    <td className="py-4">
-                      <div className="flex items-center gap-3">
-                        {p.imageUrl ? (
-                          <img src={p.imageUrl} alt={p.name} className="size-10 shrink-0 rounded-md object-cover" />
-                        ) : (
-                          <div className="flex size-10 shrink-0 items-center justify-center rounded-md bg-[#1a1a1a] text-[#c8b995]/40">✦</div>
-                        )}
-                        <span>{p.name}</span>
-                      </div>
-                    </td>
-                    <td className="py-4 text-white/45">{p.category}</td>
-                    <td className="py-4 text-right text-[#c8b995]">{formatARS(p.price)}</td>
+                    <td className="py-4">{p.cliente}</td>
+                    <td className="py-4"><Status value={p.estado} /></td>
+                    <td className="py-4 text-right text-[#c8b995]">{formatARS(p.total)}</td>
                   </tr>
                 ))}
-                {productos.length === 0 && <tr><td colSpan={3} className="py-8 text-center text-white/30">No hay productos todavía.</td></tr>}
+                {pedidos.length === 0 && <tr><td colSpan={3} className="py-8 text-center text-white/30">No hay pedidos todavía.</td></tr>}
               </tbody>
             </table>
           </div>
@@ -351,6 +392,7 @@ function Overview({ productos, clientes, setActive }: { productos: ProductoAdmin
           <div className="mt-8 flex flex-col gap-3 text-sm">
             <div className="flex justify-between"><span className="text-white/50">Activos</span><span className="text-emerald-300">{activos}</span></div>
             <div className="flex justify-between"><span className="text-white/50">Agotados</span><span className="text-red-300">{productos.filter((p) => p.status === 'Agotado').length}</span></div>
+            <div className="mt-4 border-t border-white/10 pt-4 flex justify-between"><span className="text-white/50">Pedidos pendientes</span><span className="text-[#c8b995]">{pendientes}</span></div>
           </div>
         </section>
       </div>
@@ -388,13 +430,13 @@ function Products({ products, onAdd, onEdit, onDelete }: { products: ProductoAdm
                   <div className="flex size-full items-center justify-center text-4xl text-[#c8b995]/20">✦</div>
                 )}
                 <div className="absolute left-3 top-3 flex flex-col gap-2">
-  <Status value={product.status} />
-  {product.descuento > 0 && (
-    <span className="inline-flex rounded-full bg-red-500 px-2.5 py-1 text-[10px] font-semibold text-white">
-      -{product.descuento}%
-    </span>
-  )}
-</div>
+                  <Status value={product.status} />
+                  {product.descuento > 0 && (
+                    <span className="inline-flex rounded-full bg-red-500 px-2.5 py-1 text-[10px] font-semibold text-white">
+                      -{product.descuento}%
+                    </span>
+                  )}
+                </div>
               </div>
               <div className="flex flex-1 flex-col gap-3 p-4">
                 <div>
@@ -402,18 +444,18 @@ function Products({ products, onAdd, onEdit, onDelete }: { products: ProductoAdm
                   <p className="mt-1 text-[10px] uppercase tracking-[0.15em] text-white/40">{product.category}</p>
                 </div>
                 <div className="flex items-center justify-between border-t border-white/5 pt-3">
-  {product.descuento > 0 ? (
-    <div className="flex flex-col">
-      <span className="text-xs text-white/30 line-through">{formatARS(product.price)}</span>
-      <span className="text-sm font-semibold text-[#c8b995]">
-        {formatARS(product.price * (1 - product.descuento / 100))}
-      </span>
-    </div>
-  ) : (
-    <span className="text-sm text-[#c8b995]">{formatARS(product.price)}</span>
-  )}
-  <span className="text-xs text-white/40">Stock: {product.stock}</span>
-</div>
+                  {product.descuento > 0 ? (
+                    <div className="flex flex-col">
+                      <span className="text-xs text-white/30 line-through">{formatARS(product.price)}</span>
+                      <span className="text-sm font-semibold text-[#c8b995]">
+                        {formatARS(product.price * (1 - product.descuento / 100))}
+                      </span>
+                    </div>
+                  ) : (
+                    <span className="text-sm text-[#c8b995]">{formatARS(product.price)}</span>
+                  )}
+                  <span className="text-xs text-white/40">Stock: {product.stock}</span>
+                </div>
                 <div className="flex gap-2">
                   <button onClick={() => onEdit(product)} className="flex flex-1 items-center justify-center gap-2 border border-white/15 px-3 py-2 text-[10px] uppercase tracking-[0.15em] text-white/60 transition hover:border-[#c8b995] hover:text-[#c8b995]">
                     <Pencil className="size-3" /> Editar
@@ -424,6 +466,363 @@ function Products({ products, onAdd, onEdit, onDelete }: { products: ProductoAdm
                 </div>
               </div>
             </article>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+// ==========================================
+// SECCIÓN PEDIDOS CON GRÁFICO Y RESUMEN
+// ==========================================
+
+function Pedidos({ pedidos, onCambiarEstado }: { pedidos: PedidoAdmin[]; onCambiarEstado: (id: string, estado: string) => void }) {
+  const [filtro, setFiltro] = useState<'dia' | 'semana' | 'mes' | 'año'>('semana')
+
+  const ahora = useMemo(() => new Date(), [])
+
+  // ==========================================
+  // DIAGNÓSTICO: ver las fechas de los pedidos
+  // ==========================================
+  useEffect(() => {
+    console.log('=== PEDIDOS CARGADOS ===')
+    console.log('Total de pedidos:', pedidos.length)
+    pedidos.forEach((p) => {
+      const fecha = p.fecha?.toMillis?.()
+      const fechaDate = fecha ? new Date(fecha) : null
+      console.log(`- ${p.cliente}:`, {
+        fechaTimestamp: p.fecha,
+        toMillis: fecha,
+        fechaFormateada: fechaDate ? fechaDate.toLocaleString('es-AR') : 'Sin fecha',
+        hora: fechaDate ? fechaDate.getHours() : null,
+        dia: fechaDate ? fechaDate.getDate() : null,
+        mes: fechaDate ? fechaDate.getMonth() + 1 : null,
+        año: fechaDate ? fechaDate.getFullYear() : null,
+        total: p.total,
+        tipoTotal: typeof p.total,
+      })
+    })
+    console.log('=== FIN ===')
+  }, [pedidos])
+
+  const rangoFechas = useMemo(() => {
+    const inicio = new Date()
+    if (filtro === 'dia') {
+      inicio.setHours(0, 0, 0, 0)
+    } else if (filtro === 'semana') {
+      inicio.setDate(ahora.getDate() - 6)
+      inicio.setHours(0, 0, 0, 0)
+    } else if (filtro === 'mes') {
+      inicio.setDate(ahora.getDate() - 27)
+      inicio.setHours(0, 0, 0, 0)
+    } else {
+      inicio.setMonth(ahora.getMonth() - 11)
+      inicio.setDate(1)
+      inicio.setHours(0, 0, 0, 0)
+    }
+    return inicio
+  }, [filtro, ahora])
+
+  const pedidosFiltrados = useMemo(() => {
+    return pedidos.filter((p) => {
+      const fecha = p.fecha?.toMillis?.()
+      if (!fecha) return false
+      return fecha >= rangoFechas.getTime()
+    })
+  }, [pedidos, rangoFechas])
+
+  const totalVendido = pedidosFiltrados.reduce((sum, p) => sum + (Number(p.total) || 0), 0)
+  const totalPedidos = pedidosFiltrados.length
+  const promedio = totalPedidos > 0 ? totalVendido / totalPedidos : 0
+  const totalProductos = pedidosFiltrados.reduce(
+    (sum, p) => sum + (p.productos?.reduce((s, prod) => s + (Number(prod.cantidad) || 0), 0) ?? 0),
+    0
+  )
+
+const datosGrafico = useMemo(() => {
+  // Función auxiliar: convierte un timestamp a "YYYY-MM-DD" en zona horaria LOCAL
+  const aFechaLocal = (timestamp: number) => {
+    const d = new Date(timestamp)
+    const año = d.getFullYear()
+    const mes = String(d.getMonth() + 1).padStart(2, '0')
+    const dia = String(d.getDate()).padStart(2, '0')
+    return `${año}-${mes}-${dia}`
+  }
+
+  // Función auxiliar: convierte un timestamp a "YYYY-MM-DD HH" en zona horaria LOCAL
+  const aFechaHoraLocal = (timestamp: number) => {
+    const d = new Date(timestamp)
+    const año = d.getFullYear()
+    const mes = String(d.getMonth() + 1).padStart(2, '0')
+    const dia = String(d.getDate()).padStart(2, '0')
+    const hora = String(d.getHours()).padStart(2, '0')
+    return `${año}-${mes}-${dia} ${hora}`
+  }
+
+  // DEBUG: ver qué fechas se están generando
+  console.log('=== DEBUG GRÁFICO ===')
+  console.log('Filtro:', filtro)
+  console.log('Fecha del sistema:', new Date().toLocaleString('es-AR'))
+  pedidos.forEach((p) => {
+    const t = p.fecha?.toMillis?.()
+    if (t) {
+      console.log(`Pedido de ${p.cliente}:`, {
+        toMillis: t,
+        fechaLocal: aFechaLocal(t),
+        fechaHoraLocal: aFechaHoraLocal(t),
+        fechaFormateada: new Date(t).toLocaleString('es-AR'),
+      })
+    }
+  })
+  console.log('=== FIN DEBUG ===')
+
+  if (filtro === 'dia') {
+    const hoy = new Date()
+    const fechaHoy = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}-${String(hoy.getDate()).padStart(2, '0')}`
+
+    console.log('Fecha de hoy (día):', fechaHoy)
+
+    return Array.from({ length: 24 }, (_, hora) => {
+      const horaStr = String(hora).padStart(2, '0')
+      const clave = `${fechaHoy} ${horaStr}`
+
+      const total = pedidos
+        .filter((p) => {
+          const t = p.fecha?.toMillis?.()
+          if (!t) return false
+          return aFechaHoraLocal(t) === clave
+        })
+        .reduce((sum, p) => sum + (Number(p.total) || 0), 0)
+
+      return { label: `${hora}h`, valor: total, hora }
+    })
+  } else if (filtro === 'semana') {
+    const dias = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb']
+    const hoy = new Date()
+    hoy.setHours(0, 0, 0, 0)
+
+    return Array.from({ length: 7 }, (_, i) => {
+      const fecha = new Date(hoy)
+      fecha.setDate(hoy.getDate() - (6 - i))
+      const fechaStr = `${fecha.getFullYear()}-${String(fecha.getMonth() + 1).padStart(2, '0')}-${String(fecha.getDate()).padStart(2, '0')}`
+
+      const total = pedidos
+        .filter((p) => {
+          const t = p.fecha?.toMillis?.()
+          if (!t) return false
+          return aFechaLocal(t) === fechaStr
+        })
+        .reduce((sum, p) => sum + (Number(p.total) || 0), 0)
+
+      console.log(`Comparando: pedido=${aFechaLocal(pedidos[0]?.fecha?.toMillis?.() ?? 0)} vs gráfico=${fechaStr} → ${aFechaLocal(pedidos[0]?.fecha?.toMillis?.() ?? 0) === fechaStr ? 'MATCH' : 'NO MATCH'}`)
+
+      return {
+        label: `${dias[fecha.getDay()]} ${fecha.getDate()}`,
+        valor: total,
+      }
+    })
+  } else if (filtro === 'mes') {
+    const hoy = new Date()
+    hoy.setHours(0, 0, 0, 0)
+
+    return Array.from({ length: 4 }, (_, i) => {
+      const inicio = new Date(hoy)
+      inicio.setDate(hoy.getDate() - (3 - i) * 7)
+      const fin = new Date(inicio)
+      fin.setDate(fin.getDate() + 6)
+
+      const inicioStr = aFechaLocal(inicio.getTime())
+      const finStr = aFechaLocal(fin.getTime())
+
+      const total = pedidos
+        .filter((p) => {
+          const t = p.fecha?.toMillis?.()
+          if (!t) return false
+          const fecha = aFechaLocal(t)
+          return fecha >= inicioStr && fecha <= finStr
+        })
+        .reduce((sum, p) => sum + (Number(p.total) || 0), 0)
+
+      return { label: `Sem ${i + 1}`, valor: total }
+    })
+  } else {
+    const meses = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
+    const hoy = new Date()
+
+    return Array.from({ length: 12 }, (_, i) => {
+      const fecha = new Date(hoy.getFullYear(), hoy.getMonth() - (11 - i), 1)
+      const año = fecha.getFullYear()
+      const mes = fecha.getMonth()
+
+      const total = pedidos
+        .filter((p) => {
+          const t = p.fecha?.toMillis?.()
+          if (!t) return false
+          const d = new Date(t)
+          return d.getFullYear() === año && d.getMonth() === mes
+        })
+        .reduce((sum, p) => sum + (Number(p.total) || 0), 0)
+
+      return { label: meses[mes], valor: total }
+    })
+  }
+}, [filtro, pedidos])
+
+  const maxValor = Math.max(...datosGrafico.map((d) => d.valor), 1)
+
+  return (
+    <div className="flex flex-col gap-6">
+      <div>
+        <p className="text-[10px] uppercase tracking-[0.3em] text-[#c8b995]">Operaciones</p>
+        <h2 className="mt-2 font-serif text-3xl">Todos los pedidos</h2>
+      </div>
+
+      {/* Filtros */}
+      <div className="flex flex-wrap gap-2">
+        {(['dia', 'semana', 'mes', 'año'] as const).map((f) => (
+          <button
+            key={f}
+            onClick={() => setFiltro(f)}
+            className={`px-4 py-2 text-[10px] uppercase tracking-[0.2em] transition ${
+              filtro === f
+                ? 'bg-[#c8b995] text-black'
+                : 'border border-white/15 text-white/60 hover:border-[#c8b995] hover:text-[#c8b995]'
+            }`}
+          >
+            {f === 'dia' ? 'Hoy' : f === 'semana' ? 'Semana' : f === 'mes' ? 'Mes' : 'Año'}
+          </button>
+        ))}
+      </div>
+
+      {/* Sumario */}
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <article className="border border-white/10 bg-[#111] p-5">
+          <p className="text-xs uppercase tracking-[0.15em] text-white/45">Total vendido</p>
+          <p className="mt-4 font-serif text-3xl text-[#c8b995]">{formatARS(totalVendido)}</p>
+        </article>
+        <article className="border border-white/10 bg-[#111] p-5">
+          <p className="text-xs uppercase tracking-[0.15em] text-white/45">Pedidos</p>
+          <p className="mt-4 font-serif text-3xl">{totalPedidos}</p>
+        </article>
+        <article className="border border-white/10 bg-[#111] p-5">
+          <p className="text-xs uppercase tracking-[0.15em] text-white/45">Productos vendidos</p>
+          <p className="mt-4 font-serif text-3xl">{totalProductos}</p>
+        </article>
+        <article className="border border-white/10 bg-[#111] p-5">
+          <p className="text-xs uppercase tracking-[0.15em] text-white/45">Ticket promedio</p>
+          <p className="mt-4 font-serif text-3xl">{formatARS(promedio)}</p>
+        </article>
+      </div>
+
+           {/* Gráfico */}
+      <section className="border border-white/10 bg-[#111] p-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-[10px] uppercase tracking-[0.3em] text-[#c8b995]">Ventas</p>
+            <h3 className="mt-2 font-serif text-2xl">
+              {filtro === 'dia'
+                ? 'Ventas por hora (hoy)'
+                : filtro === 'semana'
+                  ? 'Últimos 7 días'
+                  : filtro === 'mes'
+                    ? 'Últimas 4 semanas'
+                    : 'Últimos 12 meses'}
+            </h3>
+          </div>
+          <span className="text-xs text-white/40">{formatARS(totalVendido)}</span>
+        </div>
+
+        <div className="mt-8 overflow-x-auto">
+          <div className={`flex items-end gap-2 ${filtro === 'dia' ? 'min-w-200' : ''}`} style={{ height: '240px' }}>
+            {datosGrafico.map((d, i) => {
+              const altura = maxValor > 0 ? (d.valor / maxValor) * 100 : 0
+              return (
+                <div
+                  key={i}
+                  className="group flex flex-1 flex-col items-center justify-end gap-2"
+                  style={{ minWidth: filtro === 'dia' ? '30px' : '50px', height: '100%' }}
+                >
+                  <span className="text-[9px] text-white/40 opacity-0 transition group-hover:opacity-100">
+                    {d.valor > 0 ? formatARS(d.valor) : ''}
+                  </span>
+                  <div
+                    className={`w-full rounded-t transition-all duration-500 ${
+                      d.valor > 0 ? 'bg-[#c8b995]' : 'bg-[#c8b995]/20'
+                    }`}
+                    style={{
+                      height: d.valor > 0 ? `${Math.max(altura, 4)}%` : '4px',
+                      minHeight: d.valor > 0 ? '8px' : '4px',
+                    }}
+                    title={d.valor > 0 ? `${d.label}: ${formatARS(d.valor)}` : d.label}
+                  />
+                  <span className="text-[9px] uppercase tracking-widest text-white/40">{d.label}</span>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+        {totalVendido === 0 && (
+          <p className="mt-6 text-center text-xs text-white/40">No hay ventas en este período.</p>
+        )}
+      </section>
+
+      {/* Lista de pedidos */}
+      {pedidos.length === 0 ? (
+        <div className="border border-white/10 bg-[#111] p-10 text-center text-sm text-white/40">
+          Todavía no hay pedidos registrados.
+        </div>
+      ) : (
+        <div className="flex flex-col gap-4">
+          {pedidos.map((pedido) => (
+            <div key={pedido.id} className="border border-white/10 bg-[#111] p-5">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div className="flex flex-col gap-2">
+                  <p className="text-[10px] uppercase tracking-[0.2em] text-[#c8b995]">
+                    Pedido #{pedido.id.slice(0, 8).toUpperCase()}
+                  </p>
+                  <p className="font-serif text-lg text-white">{pedido.cliente}</p>
+                  <p className="text-xs text-white/45">{pedido.email}</p>
+                  <p className="text-xs text-white/45">{pedido.telefono}</p>
+                  <p className="text-xs text-white/45">
+                    {pedido.direccion}, {pedido.ciudad} (CP {pedido.codigoPostal})
+                  </p>
+                  <p className="mt-2 text-xs text-white/55">
+                    {pedido.fecha?.toMillis?.()
+                      ? new Date(pedido.fecha.toMillis()).toLocaleString('es-AR')
+                      : 'Sin fecha'}
+                  </p>
+                </div>
+                <div className="flex flex-col items-start gap-3 lg:items-end">
+                  <p className="font-serif text-2xl text-[#c8b995]">{formatARS(pedido.total)}</p>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] uppercase tracking-[0.15em] text-white/40">Estado:</span>
+                    <select
+                      value={pedido.estado}
+                      onChange={(e) => onCambiarEstado(pedido.id, e.target.value)}
+                      className="border border-white/15 bg-[#0b0b0b] px-3 py-2 text-[10px] uppercase tracking-[0.15em] text-white outline-none focus:border-[#c8b995]"
+                    >
+                      {ESTADOS_PEDIDO.map((estado) => (
+                        <option key={estado} value={estado}>
+                          {estado}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </div>
+              {pedido.productos && pedido.productos.length > 0 && (
+                <div className="mt-4 border-t border-white/5 pt-4">
+                  <p className="mb-2 text-[10px] uppercase tracking-[0.15em] text-white/40">Productos</p>
+                  <ul className="flex flex-col gap-1 text-xs text-white/55">
+                    {pedido.productos.map((prod, i) => (
+                      <li key={i}>
+                        {prod.cantidad}x {prod.nombre} — Talle {prod.talle} — {formatARS(prod.precio)} c/u
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
           ))}
         </div>
       )}
@@ -474,9 +873,10 @@ function Clientes({ clientes }: { clientes: ClienteAdmin[] }) {
   <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; color: #333;">
     <div style="text-align: center; margin-bottom: 30px;">
       <img src="https://i.ibb.co/pvDpKyBq/stampa-sur-fondo-negro.png" alt="Stampa Sur" style="width: 180px; height: auto;" />
- <p style="font-family: 'Cormorant Garamond', Georgia, 'Times New Roman', serif; font-size: 22px; letter-spacing: 4px; margin-top: 15px; color: #000000;">
-    STAMPA <span style="color: #aaa398;">SUR</span>
-  </p>    </div>
+      <p style="font-family: 'Cormorant Garamond', Georgia, 'Times New Roman', serif; font-size: 22px; letter-spacing: 4px; margin-top: 15px; color: #000000;">
+        STAMPA <span style="color: #aaa398;">SUR</span>
+      </p>
+    </div>
     <div style="background: #f9f9f9; padding: 30px; border-radius: 8px;">
       <p style="font-size: 16px; line-height: 1.6;">${mensajePersonalizado.replace(/\n/g, '<br />')}</p>
     </div>
@@ -598,7 +998,6 @@ function Clientes({ clientes }: { clientes: ClienteAdmin[] }) {
         </div>
       )}
 
-      {/* Modal de envío */}
       {modalAbierto && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-5">
           <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto border border-white/10 bg-[#151515] p-6 shadow-2xl">
@@ -721,7 +1120,6 @@ function ProductForm({ onClose, product, onSaved }: { onClose: () => void; produ
   const [category, setCategory] = useState(product?.category ?? '')
   const [description, setDescription] = useState('')
   const [descuento, setDescuento] = useState<string>(product?.descuento ? String(product.descuento) : '')
- 
 
   async function handleImageChange(event: ChangeEvent<HTMLInputElement>) {
     const image = event.target.files?.[0]
@@ -748,16 +1146,16 @@ function ProductForm({ onClose, product, onSaved }: { onClose: () => void; produ
     setSaving(true)
     setSaveError('')
     try {
- const data = {
-  nombre: name,
-  precio: Number(price) || 0,
-  descuento: Number(descuento) || 0,
-  stock: Number(stock) || 0,
-  categoria: category,
-  descripcion: description,
-  imagenUrl: imageUrl,
-  destacado: false,
-}
+      const data = {
+        nombre: name,
+        precio: Number(price) || 0,
+        descuento: Number(descuento) || 0,
+        stock: Number(stock) || 0,
+        categoria: category,
+        descripcion: description,
+        imagenUrl: imageUrl,
+        destacado: false,
+      }
 
       if (product?.id) {
         await updateDoc(doc(db, 'productos', product.id), data)
@@ -808,21 +1206,22 @@ function ProductForm({ onClose, product, onSaved }: { onClose: () => void; produ
               <input required type="number" value={stock} onChange={(e) => setStock(e.target.value)} className="border border-white/10 bg-[#0b0b0b] px-3 py-3 text-sm text-white outline-none focus:border-[#c8b995]" placeholder="10" />
             </label>
           </div>
+
           <label className="flex flex-col gap-2 text-xs text-white/55">
-  Descuento (%)
-  <input
-    type="number"
-    value={descuento}
-    onChange={(e) => setDescuento(e.target.value)}
-    min="0"
-    max="100"
-    className="border border-white/10 bg-[#0b0b0b] px-3 py-3 text-sm text-white outline-none focus:border-[#c8b995]"
-    placeholder="Ej. 20 (dejalo vacío para no aplicar descuento)"
-  />
-  <span className="text-[10px] text-white/35">
-    Si completás este campo, el producto se mostrará con el precio tachado y el descuento aplicado.
-  </span>
-</label>
+            Descuento (%)
+            <input
+              type="number"
+              value={descuento}
+              onChange={(e) => setDescuento(e.target.value)}
+              min="0"
+              max="100"
+              className="border border-white/10 bg-[#0b0b0b] px-3 py-3 text-sm text-white outline-none focus:border-[#c8b995]"
+              placeholder="Ej. 20 (dejalo vacío para no aplicar descuento)"
+            />
+            <span className="text-[10px] text-white/35">
+              Si completás este campo, el producto se mostrará con el precio tachado y el descuento aplicado.
+            </span>
+          </label>
 
           <label className="flex flex-col gap-2 text-xs text-white/55">
             Descripción (opcional)

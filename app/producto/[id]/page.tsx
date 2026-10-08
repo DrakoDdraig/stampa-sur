@@ -221,14 +221,19 @@ export default function ProductPage() {
               <ShoppingBag className="size-4" />
               {!disponible ? 'Sin stock' : added ? 'Agregado al carrito' : 'Agregar al carrito'}
             </button>
-
-            {/* Botón personalizar */}
-            <Link
-              href="/#personalizar"
-              className="mt-3 inline-flex items-center justify-center gap-3 border border-[#c8b995]/50 px-6 py-4 text-[10px] uppercase tracking-[0.25em] text-[#c8b995] hover:border-[#c8b995]"
-            >
-              <MessageCircle className="size-4" /> Personalizar esta remera
-            </Link>
+              {/* Botón de compra directa por WhatsApp */}
+<button
+  type="button"
+  onClick={() => {
+    const mensaje = `Hola Stampa Sur! Quiero comprar esta remera:\n\n👕 Producto: ${producto.nombre}\n📏 Talle: ${size}\n🎨 Color: ${producto.categoria}\n🔢 Cantidad: ${quantity}\n💰 Precio unitario: ${formatPrice(precioConDescuento)}\n💵 Total: ${formatPrice(precioConDescuento * quantity)}\n\n¿Me confirmás disponibilidad?`
+    window.open(`https://wa.me/${whatsappNumber}?text=${encodeURIComponent(mensaje)}`, '_blank', 'noopener,noreferrer')
+  }}
+  disabled={!disponible}
+  className="mt-3 inline-flex w-full items-center justify-center gap-3 border border-[#c8b995]/50 px-6 py-4 text-[10px] uppercase tracking-[0.25em] text-[#c8b995] transition hover:border-[#c8b995] hover:bg-[#c8b995]/5 disabled:cursor-not-allowed disabled:opacity-50"
+>
+  <MessageCircle className="size-4" /> Comprar esta remera
+</button>
+           
           </div>
         </div>
       </section>
