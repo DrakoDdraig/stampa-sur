@@ -103,6 +103,39 @@ export function ShirtCustomizer() {
     }
     cargar()
   }, [user])
+    // Cargar diseño desde la URL (?diseno=ID)
+  useEffect(() => {
+    if (!user) return
+    const params = new URLSearchParams(window.location.search)
+    const disenoId = params.get('diseno')
+    if (!disenoId) return
+
+    const cargarDiseno = async () => {
+      try {
+        const ref = doc(db, 'usuarios', user.uid, 'disenos', disenoId)
+        const snap = await getDoc(ref)
+        if (snap.exists()) {
+          const d = snap.data()
+          if (d.talle) setSize(d.talle)
+          if (d.colorNombre && d.colorHex) setColor({ nombre: d.colorNombre, hex: d.colorHex })
+          if (d.imagenUrl) { setDesignUrl(d.imagenUrl); setDesign(d.imagenUrl) }
+          if (d.notas) setNotes(d.notas)
+
+          // Actualizar la referencia para que no muestre toast de auto-guardado
+          borradorInicialRef.current = JSON.stringify({
+            talle: d.talle ?? '',
+            colorNombre: d.colorNombre ?? '',
+            colorHex: d.colorHex ?? '',
+            imagenUrl: d.imagenUrl ?? '',
+            notas: d.notas ?? '',
+          })
+        }
+      } catch (error) {
+        console.error('Error cargando diseño:', error)
+      }
+    }
+    cargarDiseno()
+  }, [user])
 
   // Auto-guardado con debounce
   useEffect(() => {
